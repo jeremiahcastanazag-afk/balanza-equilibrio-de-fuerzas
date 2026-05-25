@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Simulador de equilibrio de fuerzas</title>
+
+<style>
+  body{
+    margin:0;
+    font-family:Arial, sans-serif;
+    background:#eef4f8;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+  }
+
+  .container{
+    width:1000px;
+    background:white;
+    border-radius:16px;
+    padding:20px;
+    box-shadow:0 8px 25px rgba(0,0,0,.12);
+  }
+
+  h2{
+    text-align:center;
+    margin-top:0;
+  }
+
+  .workspace{
+    position:relative;
+    height:340px;
+    border-radius:12px;
+    background:linear-gradient(#d9eef8,#f7fbff);
+    overflow:hidden;
+  }
+
+  /* Barra */
+  .beam-wrapper{
+    position:absolute;
+    left:50%;
+    top:180px;
+    transform-origin:center center;
+    transition:transform .25s ease;
+  }
+
+  .beam{
+    width:700px;
+    height:14px;
+    margin-left:-350px;
+    background:#7b5e3b;
+    border-radius:8px;
+    position:relative;
+  }
+
+  /* marcas */
+  .mark{
+    position:absolute;
+    top:-8px;
+    width:2px;
+    height:30px;
+    background:#fff;
+    opacity:.7;
+  }
+
+  /* pivote */
+  .pivot{
+    position:absolute;
+    left:50%;
+    top:195px;
+    transform:translateX(-50%);
+    width:0;
+    height:0;
+    border-left:28px solid transparent;
+    border-right:28px solid transparent;
+    border-bottom:60px solid #4d5561;
+  }
+
+  /* zona de pesos */
+  .weights{
+    display:flex;
+    gap:12px;
+    margin-top:18px;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+
+  .weight{
+    width:60px;
+    height:60px;
+    border-radius:10px;
+    color:white;
+    font-weight:bold;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:grab;
+    user-select:none;
+    box-shadow:0 4px 10px rgba(0,0,0,.18);
+  }
+
+  .placed{
+    position:absolute;
+    top:-70px;
+    cursor:grab;
+  }
+
+  .panel{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:12px;
+    margin-top:18px;
+  }
+
+  .card{
+    background:#f7fafc;
+    padding:12px;
+    border-radius:10px;
+    text-align:center;
+    font-weight:bold;
+  }
+
+  .ok{ color:#0a8f43; }
+  .warn{ color:#c03221; }
+
+  .hint{
+    text-align:center;
+    margin-top:10px;
+    color:#555;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <h2>⚖️ Simulador de equilibrio de fuerzas</h2>
+
+  <div class="workspace" id="workspace">
+
+    <div class="beam-wrapper" id="beamWrapper">
+      <div class="beam" id="beam"></div>
+    </div>
+
+    <div class="pivot"></div>
+
+  </div>
+
+  <div class="weights" id="palette"></div>
+
+  <div class="panel">
+    <div class="card" id="forcesCard"></div>
+    <div class="card" id="torqueCard"></div>
+    <div class="card" id="statusCard"></div>
+  </div>
+
+  <div class="hint">
+    Arrastra los pesos y colócalos sobre la barra. La posición afecta el torque.
+  </div>
+
+</div>
+
+<script>
+const beam = document.getElementById("beam");
+const beamWrapper = document.getElementById("beamWrapper");
+const palette = document.getElementById("palette");
+const workspace = document.getElementById("workspace");
+
+const forcesCard = document.getElementById("forcesCard");
+const torqueCard = document.getElementById("torqueCard");
+const statusCard = document.getElementById("statusCard");
+
+const weightsData = [
+  { value:2, color:"#3b82f6" },
+  { value:4, color:"#10b981" },
+  { value:6, color:"#ef4444" },
+  { value:8, color:"#8b5cf6" }
+];
+
+const placed = [];
+
+function createMarks(){
+  for(let i=0;i<=14;i++){
+    const m=document.createElement("div");
+    m.className="mark";
+    m.style.left=(i*50)+"px";
+    beam.appendChild(m);
+  }
+}
+createMarks();
+
+function buildPalette(){
+  weightsData.forEach((w,index)=>{
+    const el=document.createElement("div");
+    el.className="weight";
+    el.style.background=w.color;
+    el.textContent=w.value+" N";
+    el.draggable=true;
+
+    el.addEventListener("dragstart",e=>{
+      e.dataTransfer.setData("text/plain", index);
+    });
+
+    palette.appendChild(el);
+  });
+}
+buildPalette();
+
+workspace.addEventListener("dragover", e=>e.preventDefault());
+
+workspace.addEventListener("drop", e=>{
+  e.preventDefault();
+
+  const index=e.dataTransfer.getData("text/plain");
+  const w=weightsData[index];
+
+  const rect=beam.getBoundingClientRect();
+
+  if(
+    e.clientY < rect.top-80 ||
+    e.clientY > rect.bottom+40
+  ) return;
+
+  const x=e.clientX-rect.left;
+  const slot=Math.round(x/50);
+  const px=slot*50;
+
+  if(px<0 || px>700) return;
+
+  addPlacedWeight(w, px);
+});
+
+function addPlacedWeight(data, x){
+  const el=document.createElement("div");
+
+  el.className="weight placed";
+  el.style.background=data.color;
+  el.textContent=data.value+" N";
+  el.style.left=(x-30)+"px";
+
+  el.draggable=true;
+
+  const item={el,value:data.value,x};
+
+  el.addEventListener("dragstart", ()=>{
+    dragged=item;
+  });
+
+  beam.appendChild(el);
+  placed.push(item);
+
+  update();
+}
+
+let dragged=null;
+
+workspace.addEventListener("drop", e=>{
+  if(!dragged) return;
+
+  const rect=beam.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const slot=Math.round(x/50);
+  const px=slot*50;
+
+  dragged.x=px;
+  dragged.el.style.left=(px-30)+"px";
+
+  dragged=null;
+
+  update();
+});
+
+function update(){
+
+  let leftForce=0;
+  let rightForce=0;
+
+  let leftTorque=0;
+  let rightTorque=0;
+
+  placed.forEach(w=>{
+    const d=(w.x-350)/50;
+
+    if(d<0){
+      leftForce+=w.value;
+      leftTorque+=Math.abs(d)*w.value;
+    }else if(d>0){
+      rightForce+=w.value;
+      rightTorque+=d*w.value;
+    }
+  });
+
+  const sigmaF=leftForce-rightForce;
+  const sigmaT=rightTorque-leftTorque;
+
+  let angle=sigmaT*2;
+  angle=Math.max(-15,Math.min(15,angle));
+
+  beamWrapper.style.transform=`rotate(${angle}deg)`;
+
+  forcesCard.innerHTML=
+    `ΣF = ${sigmaF} N<br>
+     Izq: ${leftForce} N | Der: ${rightForce} N`;
+
+  torqueCard.innerHTML=
+    `Στ = ${sigmaT}<br>
+     Izq: ${leftTorque} | Der: ${rightTorque}`;
+
+  const balanced=Math.abs(sigmaT)<0.01;
+
+  statusCard.innerHTML=
+    balanced
+      ? `<span class="ok">✔ Equilibrio</span>`
+      : `<span class="warn">✘ Desequilibrio</span>`;
+}
+
+update();
+</script>
+
+</body>
+</html>
